@@ -8,8 +8,8 @@ const fs = require('fs-extra');
 const path = require('path');
 
 // load env variables
-const STRIPE_SECRET_KEY = process.env.PROD ? process.env.PROD_STRIPE_SECRET_KEY : process.env.TEST_STRIPE_SECRET_KEY;
-const STRIPE_WEBHOOK_SECRET = process.env.PROD ? process.env.PROD_STRIPE_WEBHOOK_SECRET : process.env.TEST_STRIPE_WEBHOOK_SECRET;
+const STRIPE_SECRET_KEY = process.env.PROD === 'True' ? process.env.PROD_STRIPE_SECRET_KEY : process.env.TEST_STRIPE_SECRET_KEY;
+const STRIPE_WEBHOOK_SECRET = process.env.PROD === 'True' ? process.env.PROD_STRIPE_WEBHOOK_SECRET : process.env.TEST_STRIPE_WEBHOOK_SECRET;
 
 // init app
 const app = express();
@@ -23,7 +23,7 @@ app.use((req, res, next) => {
 const PORT = process.env.PORT || 3000;
 
 // ---- helper: increment credits ----
-async function incrementCredits(subscriberId) {
+async function incrementCredits(subscriberId, credit) {
 	// Step 1: Get subscriber info
 	const resp = await fetch(`https://api.manychat.com/fb/subscriber/getInfo?subscriber_id=${subscriberId}`, {
 	  headers: {
@@ -44,7 +44,7 @@ async function incrementCredits(subscriberId) {
 	currentCredits = Number(currentCredits) || 0; // ensure valid number
   
 	// Step 3: Increment
-	const newCredits = currentCredits + 1;
+	const newCredits = currentCredits + Number(credit);
   
 	// Step 4: Set new credits
 	const setResp = await fetch('https://api.manychat.com/fb/subscriber/setCustomField', {
@@ -62,7 +62,7 @@ async function incrementCredits(subscriberId) {
 	});
   
 	const setData = await setResp.json();
-	console.log('Set credits response:', JSON.stringify(setData));
+	console.log('Set credits response:', subscriberId, JSON.stringify(setData));
 	console.log(`Credits updated from ${currentCredits} → ${newCredits}`);
 	return newCredits;
   }
@@ -70,8 +70,21 @@ async function incrementCredits(subscriberId) {
 
 // ---- endpoint: create checkout session ----
 app.get('/create-checkout-session', express.json(), async (req, res) => {
- 	const { client_reference_id, amount, sue_reason, product_data } = req.query;
-  	try {
+ 	const { client_reference_id, sue_reason, credit } = req.query;
+	if( credit === "1" ){
+		var product_data = "One Credit Purchase"; // $3.00
+		var amount = 300;
+	} else if( credit === "3" ){
+		var product_data = "Three Credits Purchase"; // $7.99
+		var amount = 799;
+	} else if( credit === "5" ){
+		var product_data = "Five Credits Purchase"; // $12.00
+		var amount = 1200;
+	} else {
+		return res.status(400).json({ error: 'Invalid credit option' });
+	}
+
+	try {
 		const session = await stripe.checkout.sessions.create({
 			payment_method_types: ['card'],
 			line_items: [
@@ -88,7 +101,8 @@ app.get('/create-checkout-session', express.json(), async (req, res) => {
 			payment_intent_data: {
 				metadata: {
 					client_reference_id: String(client_reference_id || ''),
-					sue_reason: String(sue_reason || '')
+					sue_reason: String(sue_reason || ''),
+					credit_amount: String(credit || ''),
 				}
 			},
 			client_reference_id: String(client_reference_id || ''),
@@ -220,10 +234,12 @@ app.post('/webhook', bodyParser.raw({ type: 'application/json' }), async (req, r
 	if (event.type === 'checkout.session.completed') {
 		const session = event.data.object; // Checkout Session
 		const manychatId = session.client_reference_id;
+		const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent);
+		const credit = paymentIntent.metadata.credit_amount;
 		
 		if (manychatId) {
 			// Step 1: Update credits
-			const newCredits = await incrementCredits(manychatId);
+			const newCredits = await incrementCredits(manychatId, credit);
 		
 			// Step 2: Trigger ManyChat flow to notify user for credits update
 			const sendPayload = {
@@ -249,10 +265,12 @@ app.post('/webhook', bodyParser.raw({ type: 'application/json' }), async (req, r
 			});
 		
 			const respText = await resp.text();
-			console.log('📨 ManyChat sendFlow response for Payment success:', resp.status, respText);
+			console.log('📨 ManyChat sendFlow response for Payment success:', manychatId, resp.status, respText, event.type);
 		}
   	} 
 	else if(event.type === 'payment_intent.payment_failed') {
+		const session = event.data.object; // Checkout Session
+		const manychatId = session.metadata.client_reference_id;
 	  // Step 3: Trigger ManyChat flow to notify user for payment failure
 	  	const sendPayload = {
 			subscriber_id: Number(manychatId),
@@ -277,7 +295,7 @@ app.post('/webhook', bodyParser.raw({ type: 'application/json' }), async (req, r
 		});
 
 		const respText = await resp.text();
-		console.log('📨 ManyChat sendFlow response for Payment failed:', resp.status, respText);
+		console.log('📨 ManyChat sendFlow response for Payment failed:', manychatId, resp.status, respText, event.type);
 	}
 });
 
