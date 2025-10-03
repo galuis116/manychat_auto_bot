@@ -69,8 +69,8 @@ async function incrementCredits(subscriberId, credit) {
 
 
 // ---- endpoint: create checkout session ----
-app.get('/create-checkout-session', express.json(), async (req, res) => {
- 	const { client_reference_id, sue_reason, credit } = req.query;
+app.post('/create-checkout-session', express.json(), async (req, res) => {
+ 	const { client_reference_id, sue_reason, answer_1, answer_2, answer_3, credit } = req.body;
 	if( credit === "1" ){
 		var product_data = "One Credit Purchase"; // $3.00
 		var amount = 300;
@@ -103,14 +103,17 @@ app.get('/create-checkout-session', express.json(), async (req, res) => {
 					client_reference_id: String(client_reference_id || ''),
 					sue_reason: String(sue_reason || ''),
 					credit_amount: String(credit || ''),
+					answer_1: String(answer_1 || ''),
+					answer_2: String(answer_2 || ''),
+					answer_3: String(answer_3 || ''),
 				}
 			},
 			client_reference_id: String(client_reference_id || ''),
 			success_url: `${process.env.BASE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.BASE_URL}/cancel`,
 		});
-
-		return res.redirect(session.url);
+		
+		return res.json({ url: session.url });
 	} catch (err) {
 		console.error('create-checkout-session error', err);
 		return res.status(500).json({ error: err.message });
