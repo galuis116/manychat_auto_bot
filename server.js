@@ -70,7 +70,7 @@ async function incrementCredits(subscriberId, credit) {
 
 // ---- endpoint: create checkout session ----
 app.post('/create-checkout-session', express.json(), async (req, res) => {
- 	const { client_reference_id, sue_reason, answer_1, answer_2, answer_3, credit } = req.body;
+ 	const { client_reference_id, sue_reason, answer_1, answer_2, answer_3, answer_4, credit } = req.body;
 	if( credit === "1" ){
 		var product_data = "One Credit Purchase"; // $3.00
 		var amount = 300;
@@ -106,6 +106,7 @@ app.post('/create-checkout-session', express.json(), async (req, res) => {
 					answer_1: String(answer_1 || ''),
 					answer_2: String(answer_2 || ''),
 					answer_3: String(answer_3 || ''),
+					answer_4: String(answer_4 || ''),
 				}
 			},
 			client_reference_id: String(client_reference_id || ''),
