@@ -386,13 +386,53 @@ app.post("/generate-verdict-image", async (req, res) => {
     try {
       const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
       const prompt = `
-		Create a vibrant, 3D cartoon-style courtroom illustration filled with humor and exaggeration.
-		The scene should depict a funny and over-the-top interpretation of the case: "${case_details}".
-		The verdict is: "${verdict}".
-		Include expressive characters — like a serious judge, a shocked lawyer, and silly creatures or props reacting wildly.
-		Use bright lighting, saturated colors, and playful chaos — confetti, exaggerated gavel motion, funny facial expressions.
-		Make it look like a comedic Pixar-style animation frame that instantly makes viewers laugh.
-		Avoid anything dark, violent, or realistic — keep it lighthearted and whimsical.
+		You are an expert cinematic AI image creator generating symbolic, emotional verdicts for the project "Frustration Court" — a fictional AI-powered emotional courtroom.
+
+		Create a visually striking, surreal courtroom scene that captures the emotional essence of the case and verdict provided below.
+
+		CASE DETAILS:
+		"${case_details}"
+
+		VERDICT:
+		"${verdict}"
+
+		Your task:
+		- Generate an artistic and symbolic courtroom illustration that visually represents the emotional weight, irony, and tone of the verdict.
+		- The image should feel like a dystopian emotional court where justice meets chaos and sarcasm.
+
+		Visual Style Guidelines:
+		- **Mood:** dark, dramatic, sarcastic, cinematic, with emotional depth.
+		- **Setting:** surreal courtroom or psychological space, not realistic — mix of human and symbolic elements.
+		- **Key symbols:** broken gavel, floating verdict papers, red wax seal labeled “Frustration Court”, cracked scales of justice, smoke, or glowing emotional energy.
+		- **Textures:** aged parchment, metal, shadowed marble, subtle grain and light leaks.
+		- **Lighting:** low-key cinematic lighting with strong contrast (spotlight on the verdict area, dark corners, subtle red reflections).
+		- **Colors:** black, deep red, charcoal gray, parchment beige, subtle highlights in gold or crimson.
+		- **Composition:** central focus on the “verdict area” (symbolic paper or holographic display), surrounded by symbolic chaos or emotional debris.
+		- **Typography area:** include space where verdict text could exist, but do NOT include readable words — use abstract lines, pseudo-legal scribbles, or stylized placeholder marks.
+		- **Additional elements:** add emotional symbolism — shadows forming human faces, smoke shaped like frustration, faint reflections of the user’s emotional theme.
+		- **Art Direction Keywords:** dystopian, brutalist, surreal, emotional, dark humor, poetic justice.
+
+		Atmosphere Keywords:
+		- dramatic tension
+		- emotional absurdity
+		- digital spirituality
+		- ironic authority
+		- metaphysical courtroom
+
+		Do NOT include:
+		- realistic text or actual human likeness
+		- violence, blood, or horror
+		- political, religious, or real-world logos
+
+		Output Format:
+		- Aspect Ratio: 4:5 (vertical poster, optimized for mobile and social media)
+		- Style: hyperrealistic cinematic concept art
+		- Vibe: darkly poetic, intelligent, and satirical — the perfect visual match for an AI judge’s sarcastic verdict.
+
+		Example tone to inspire:
+		“Justice served. No mercy. No refunds.”
+
+		Return only the final artistic scene — do not describe or explain it.
 		`;
 
       const response = await fetch(
@@ -404,9 +444,9 @@ app.post("/generate-verdict-image", async (req, res) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "dall-e-2",
+            model: "dall-e-3",
             prompt,
-            size: "512x512",
+            size: "1024x1024",
           }),
         }
       );
