@@ -7,7 +7,8 @@ const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 const fs = require("fs-extra");
 const path = require("path");
-
+const sqlite3 = require("sqlite3").verbose();
+const { v4: uuidv4 } = require("uuid");
 // load env variables
 const STRIPE_SECRET_KEY =
   process.env.PROD === "True"
@@ -21,13 +22,29 @@ const STRIPE_WEBHOOK_SECRET =
 // init app
 const app = express();
 const stripe = new Stripe(STRIPE_SECRET_KEY);
+const PORT = process.env.PORT || 3000;
+
+// SQLite setup
+const dbPath = path.join(__dirname, "verdict_images.db");
+const db = new sqlite3.Database(dbPath);
+db.serialize(() => {
+  db.run(`
+	CREATE TABLE IF NOT EXISTS images (
+	  item_id TEXT PRIMARY KEY,
+	  case_details TEXT,
+	  verdict TEXT,
+	  image_url TEXT,
+	  status TEXT,
+	  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)
+  `);
+});
 
 // Use JSON for all routes EXCEPT /webhook
 app.use((req, res, next) => {
   if (req.originalUrl === "/webhook") return next();
   express.json()(req, res, next);
 });
-const PORT = process.env.PORT || 3000;
 
 // Serve public images folder
 app.use("/images", express.static(path.join(__dirname, "public", "images")));
@@ -349,72 +366,97 @@ app.post(
   }
 );
 
-// ---- endpoint: generate funny verdict image ----
-app.post("/generate-verdict-image", express.json(), async (req, res) => {
+// ---- endpoint: async OpenAI image generation with SQLite ----
+app.post("/generate-verdict-image", async (req, res) => {
+  console.log("✅ Received image generation request:", req.body);
   const { case_details, verdict } = req.body;
 
   if (!case_details || !verdict) {
-    return res.status(400).json({ error: "Missing case_details or verdict" });
+    return res.status(400).json({ error: "Missing case_details, verdict" });
   }
+  const item_id = uuidv4();
+  db.run(
+    `INSERT OR REPLACE INTO images (item_id, case_details, verdict, status) VALUES (?, ?, ?, ?)`,
+    [item_id, case_details, verdict, "processing"]
+  );
 
-  try {
-    const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  res.json({ status: "processing", item_id });
 
-    // Create descriptive prompt for OpenAI image
-    const prompt = `Funny, cartoon-style courtroom illustration about "${case_details}". 
-	  The verdict is: "${verdict}". Make it colorful, humorous, and visually appealing.`;
+  setImmediate(async () => {
+    try {
+      const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+      const prompt = `
+		Create a vibrant, 3D cartoon-style courtroom illustration filled with humor and exaggeration.
+		The scene should depict a funny and over-the-top interpretation of the case: "${case_details}".
+		The verdict is: "${verdict}".
+		Include expressive characters — like a serious judge, a shocked lawyer, and silly creatures or props reacting wildly.
+		Use bright lighting, saturated colors, and playful chaos — confetti, exaggerated gavel motion, funny facial expressions.
+		Make it look like a comedic Pixar-style animation frame that instantly makes viewers laugh.
+		Avoid anything dark, violent, or realistic — keep it lighthearted and whimsical.
+		`;
 
-    // Generate image using OpenAI
-    const response = await fetch(
-      "https://api.openai.com/v1/images/generations",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-image-1",
-          prompt,
-          size: "256x256",
-        }),
+      const response = await fetch(
+        "https://api.openai.com/v1/images/generations",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "dall-e-2",
+            prompt,
+            size: "512x512",
+          }),
+        }
+      );
+
+      const data = await response.json();
+      if (!data.data || !data.data[0]?.url) {
+        console.error("OpenAI image API failed:", data);
+        db.run(`UPDATE images SET status = ? WHERE item_id = ?`, [
+          "failed",
+          item_id,
+        ]);
+        return;
       }
-    );
 
-    const data = await response.json();
-
-    if (!data.data || !data.data[0]?.b64_json) {
-      console.error("OpenAI image API failed:", data);
-      return res.status(500).json({ error: "Failed to generate image" });
+      const imageUrl = data.data[0].url;
+      console.log("✅ OpenAI image URL:", imageUrl);
+      db.run(`UPDATE images SET image_url = ?, status = ? WHERE item_id = ?`, [
+        imageUrl,
+        "completed",
+        item_id,
+      ]);
+    } catch (err) {
+      console.error("❌ Error generating image:", err);
+      db.run(`UPDATE images SET status = ? WHERE item_id = ?`, [
+        "failed",
+        item_id,
+      ]);
     }
+  });
+});
 
-    // // Decode and save image
-    const imageBase64 = data.data[0].b64_json;
-    // const imageBase64 =
-    //   "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAHUlEQVR42mNgGAWjYBSMglEwCkbGYoAgwAABR2A/0h9v7QAAAAASUVORK5CYII=";
+// ---- endpoint: retrieve image URL ----
+app.post("/get-image-url", async (req, res) => {
+  const { item_id } = req.body;
+  console.log("✅ Received get-image-url request:", item_id);
+  if (!item_id) return res.status(400).json({ error: "Missing item_id" });
 
-    const buffer = Buffer.from(imageBase64, "base64");
-
-    const fileName = `verdict_${Date.now()}.png`;
-    const publicDir = path.join(__dirname, "public", "images");
-    await fs.ensureDir(publicDir);
-
-    const filePath = path.join(publicDir, fileName);
-    await fs.writeFile(filePath, buffer);
-
-    // Construct public URL
-    const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
-    const publicUrl = `${baseUrl}/images/${fileName}`;
-
-    console.log(`✅ Generated image saved: ${publicUrl}`);
+  db.get(`SELECT * FROM images WHERE item_id = ?`, [item_id], (err, row) => {
+    if (err) {
+      console.error("DB query error:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+    if (!row) return res.status(404).json({ error: "Item not found" });
 
     return res.json({
-      image_url: publicUrl,
+      image_url: row.image_url,
+      item_id: row.item_id,
+      status: row.status,
     });
-  } catch (err) {
-    console.error("❌ Error generating image:", err);
-    return res.status(500).json({ error: err.message });
-  }
+  });
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
