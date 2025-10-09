@@ -9,6 +9,9 @@ const fs = require("fs-extra");
 const path = require("path");
 const sqlite3 = require("sqlite3").verbose();
 const { v4: uuidv4 } = require("uuid");
+const https = require("https");
+const http = require("http");
+
 // load env variables
 const STRIPE_SECRET_KEY =
   process.env.PROD === "True"
@@ -23,6 +26,12 @@ const STRIPE_WEBHOOK_SECRET =
 const app = express();
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 const PORT = process.env.PORT || 3000;
+
+// SSL Certificate paths (update with your win-acme PEM folder)
+const sslOptions = {
+  key: fs.readFileSync("C:/tools/privkey.pem"),
+  cert: fs.readFileSync("C:/tools/fullchain.pem"),
+};
 
 // SQLite setup
 const dbPath = path.join(__dirname, "verdict_images.db");
@@ -51,7 +60,6 @@ app.use("/images", express.static(path.join(__dirname, "public", "images")));
 
 // ---- helper: increment credits ----
 async function incrementCredits(subscriberId, credit) {
-  // Step 1: Get subscriber info
   const resp = await fetch(
     `https://api.manychat.com/fb/subscriber/getInfo?subscriber_id=${subscriberId}`,
     {
@@ -69,15 +77,12 @@ async function incrementCredits(subscriberId, credit) {
     return;
   }
 
-  // Step 2: Get current credits safely
   let currentCredits =
     subscriber.custom_fields?.find((f) => f.name === "credits")?.value ?? 0;
-  currentCredits = Number(currentCredits) || 0; // ensure valid number
+  currentCredits = Number(currentCredits) || 0;
 
-  // Step 3: Increment
   const newCredits = currentCredits + Number(credit);
 
-  // Step 4: Set new credits
   const setResp = await fetch(
     "https://api.manychat.com/fb/subscriber/setCustomField",
     {
@@ -112,15 +117,17 @@ app.post("/create-checkout-session", express.json(), async (req, res) => {
     answer_4,
     credit,
   } = req.body;
+
+  let product_data, amount;
   if (credit === "1") {
-    var product_data = "One Credit Purchase"; // $3.00
-    var amount = 300;
+    product_data = "One Credit Purchase"; // $3.00
+    amount = 300;
   } else if (credit === "3") {
-    var product_data = "Three Credits Purchase"; // $7.99
-    var amount = 799;
+    product_data = "Three Credits Purchase"; // $7.99
+    amount = 799;
   } else if (credit === "5") {
-    var product_data = "Five Credits Purchase"; // $12.00
-    var amount = 1200;
+    product_data = "Five Credits Purchase"; // $12.00
+    amount = 1200;
   } else {
     return res.status(400).json({ error: "Invalid credit option" });
   }
@@ -165,121 +172,78 @@ app.post("/create-checkout-session", express.json(), async (req, res) => {
 // Success callback
 app.get("/success", async (req, res) => {
   const sessionId = req.query.session_id;
-
-  // Optional: fetch session details from Stripe
   const session = await stripe.checkout.sessions.retrieve(sessionId);
-  // Do whatever you want: update database, send confirmation, etc.
   res.send(`
-		<!DOCTYPE html>
-		<html>
-		  <head>
-			<title>Payment Success</title>
-			<style>
-			  body {
-				font-family: Arial, sans-serif;
-				background: #f9f9f9;
-				display: flex;
-				justify-content: center;
-				align-items: center;
-				height: 100vh;
-				margin: 0;
-			  }
-			  .card {
-				background: white;
-				padding: 40px;
-				border-radius: 12px;
-				box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-				text-align: center;
-			  }
-			  h1 {
-				font-size: 28px;
-				color: #2d7a46;
-			  }
-			  p {
-				font-size: 18px;
-				color: #555;
-			  }
-			</style>
-		  </head>
-		  <body>
-			<div class="card">
-			  <h1>🎉 Payment Created!</h1>
-			  <p>Thank you for your purchase.</p>
-			  <p><strong>Session ID:</strong> ${session.id}</p>
-			  <p>You will be informed via Frustration Court.</p>
-			</div>
-		  </body>
-		</html>
-	  `);
+	<!DOCTYPE html>
+	<html>
+	  <head>
+		<title>Payment Success</title>
+		<style>
+		  body { font-family: Arial, sans-serif; background: #f9f9f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+		  .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+		  h1 { font-size: 28px; color: #2d7a46; }
+		  p { font-size: 18px; color: #555; }
+		</style>
+	  </head>
+	  <body>
+		<div class="card">
+		  <h1>🎉 Payment Created!</h1>
+		  <p>Thank you for your purchase.</p>
+		  <p><strong>Session ID:</strong> ${session.id}</p>
+		  <p>You will be informed via Frustration Court.</p>
+		</div>
+	  </body>
+	</html>
+  `);
 });
 
 // Cancel callback
 app.get("/cancel", (req, res) => {
   console.log("User canceled payment");
   res.send(`
-		<!DOCTYPE html>
-		<html>
-		  <head>
-			<title>Payment Canceled</title>
-			<style>
-			  body {
-				font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-				background: #fff5f5;
-				display: flex;
-				justify-content: center;
-				align-items: center;
-				height: 100vh;
-				margin: 0;
-			  }
-			  .card {
-				background: white;
-				padding: 40px;
-				border-radius: 12px;
-				box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-				text-align: center;
-			  }
-			  h1 {
-				font-size: 28px;
-				color: #d93025;
-			  }
-			  p {
-				font-size: 18px;
-				color: #444;
-			  }
-			</style>
-		  </head>
-		  <body>
-			<div class="card">
-			  <h1>❌ Payment Canceled</h1>
-			  <p>Your transaction has been canceled. No charges were made.</p>
-			</div>
-		  </body>
-		</html>
-	  `);
+	<!DOCTYPE html>
+	<html>
+	  <head>
+		<title>Payment Canceled</title>
+		<style>
+		  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff5f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+		  .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+		  h1 { font-size: 28px; color: #d93025; }
+		  p { font-size: 18px; color: #444; }
+		</style>
+	  </head>
+	  <body>
+		<div class="card">
+		  <h1>❌ Payment Canceled</h1>
+		  <p>Your transaction has been canceled. No charges were made.</p>
+		</div>
+	  </body>
+	</html>
+  `);
 });
 
 // ---- Stripe webhook endpoint ----
-// Note: raw body is required for stripe signature verification
 app.post(
   "/webhook",
   bodyParser.raw({ type: "application/json" }),
   async (req, res) => {
     const sig = req.headers["stripe-signature"];
-    const webhookSecret = STRIPE_WEBHOOK_SECRET;
-
     let event;
     try {
-      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        STRIPE_WEBHOOK_SECRET
+      );
     } catch (err) {
-      console.error("⚠️  Webhook signature verification failed.", err.message);
+      console.error("⚠️ Webhook signature verification failed.", err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    // Acknowledge receipt
     res.json({ received: true });
 
     if (event.type === "checkout.session.completed") {
-      const session = event.data.object; // Checkout Session
+      const session = event.data.object;
       const manychatId = session.client_reference_id;
       const paymentIntent = await stripe.paymentIntents.retrieve(
         session.payment_intent
@@ -287,10 +251,8 @@ app.post(
       const credit = paymentIntent.metadata.credit_amount;
 
       if (manychatId) {
-        // Step 1: Update credits
         const newCredits = await incrementCredits(manychatId, credit);
 
-        // Step 2: Trigger ManyChat flow to notify user for credits update
         const sendPayload = {
           subscriber_id: Number(manychatId),
           data: {
@@ -318,7 +280,7 @@ app.post(
 
         const respText = await resp.text();
         console.log(
-          "📨 ManyChat sendFlow response for Payment success:",
+          "📨 ManyChat sendFlow response:",
           manychatId,
           resp.status,
           respText,
@@ -326,9 +288,8 @@ app.post(
         );
       }
     } else if (event.type === "payment_intent.payment_failed") {
-      const session = event.data.object; // Checkout Session
+      const session = event.data.object;
       const manychatId = session.metadata.client_reference_id;
-      // Step 3: Trigger ManyChat flow to notify user for payment failure
       const sendPayload = {
         subscriber_id: Number(manychatId),
         data: {
@@ -371,9 +332,9 @@ app.post("/generate-verdict-image", async (req, res) => {
   console.log("✅ Received image generation request:", req.body);
   const { case_details, verdict } = req.body;
 
-  if (!case_details || !verdict) {
+  if (!case_details || !verdict)
     return res.status(400).json({ error: "Missing case_details, verdict" });
-  }
+
   const item_id = uuidv4();
   db.run(
     `INSERT OR REPLACE INTO images (item_id, case_details, verdict, status) VALUES (?, ?, ?, ?)`,
@@ -475,11 +436,7 @@ app.post("/generate-verdict-image", async (req, res) => {
       );
 
       await fs.outputFile(localImagePath, Buffer.from(imageBuffer));
-
-      // Make it accessible via Express static route
       const publicImageUrl = `${process.env.BASE_URL}/images/${localImageName}`;
-
-      // Save to SQLite
       db.run(`UPDATE images SET image_url = ?, status = ? WHERE item_id = ?`, [
         publicImageUrl,
         "completed",
@@ -507,7 +464,6 @@ app.post("/get-image-url", async (req, res) => {
       return res.status(500).json({ error: "Database error" });
     }
     if (!row) return res.status(404).json({ error: "Item not found" });
-
     return res.json({
       image_url: row.image_url,
       item_id: row.item_id,
@@ -516,4 +472,17 @@ app.post("/get-image-url", async (req, res) => {
   });
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// ---- START HTTPS SERVER ----
+https.createServer(sslOptions, app).listen(443, () => {
+  console.log("✅ HTTPS server running at https://frustrationcourtserwer.com");
+});
+
+// ---- Optional HTTP -> HTTPS redirect ----
+http
+  .createServer((req, res) => {
+    res.writeHead(301, { Location: "https://" + req.headers.host + req.url });
+    res.end();
+  })
+  .listen(80);
