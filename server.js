@@ -29,9 +29,12 @@ const PORT = process.env.PORT || 3000;
 
 // SSL Certificate paths (update with your win-acme PEM folder)
 const sslOptions = {
-  key: fs.readFileSync("C:/tools/privkey.pem"),
-  cert: fs.readFileSync("C:/tools/fullchain.pem"),
+  key: fs.readFileSync("C:/tools/frustrationcourtserwer.com-key.pem"),
+  cert: fs.readFileSync("C:/tools/frustrationcourtserwer.com-fullchain.pem"),
+  minVersion: "TLSv1.2",        // recommended
+  honorCipherOrder: true
 };
+
 
 // SQLite setup
 const dbPath = path.join(__dirname, "verdict_images.db");
@@ -55,9 +58,22 @@ app.use((req, res, next) => {
   express.json()(req, res, next);
 });
 
-// Serve public images folder
-app.use("/images", express.static(path.join(__dirname, "public", "images")));
+// Log every request for debugging
+app.use("/static", (req, res, next) => {
+  console.log(`[STATIC] Incoming request: ${req.method} ${req.url} from ${req.ip}`);
+  next();
+});
 
+// Serve static folder with explicit options
+app.use(
+  "/static",
+  express.static(path.join(__dirname, "public", "images"), {
+    dotfiles: "ignore",
+    index: false,
+    maxAge: "1d",
+    redirect: false,
+  })
+);
 // ---- helper: increment credits ----
 async function incrementCredits(subscriberId, credit) {
   const resp = await fetch(
@@ -436,7 +452,7 @@ app.post("/generate-verdict-image", async (req, res) => {
       );
 
       await fs.outputFile(localImagePath, Buffer.from(imageBuffer));
-      const publicImageUrl = `${process.env.BASE_URL}/images/${localImageName}`;
+      const publicImageUrl = `${process.env.BASE_URL}/static/${localImageName}`;
       db.run(`UPDATE images SET image_url = ?, status = ? WHERE item_id = ?`, [
         publicImageUrl,
         "completed",
