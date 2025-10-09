@@ -463,8 +463,25 @@ app.post("/generate-verdict-image", async (req, res) => {
 
       const imageUrl = data.data[0].url;
       console.log("✅ OpenAI image URL:", imageUrl);
+      // Download image into /public/images folder
+      const imageResponse = await fetch(imageUrl);
+      const imageBuffer = await imageResponse.arrayBuffer();
+      const localImageName = `${item_id}.png`;
+      const localImagePath = path.join(
+        __dirname,
+        "public",
+        "images",
+        localImageName
+      );
+
+      await fs.outputFile(localImagePath, Buffer.from(imageBuffer));
+
+      // Make it accessible via Express static route
+      const publicImageUrl = `${process.env.BASE_URL}/images/${localImageName}`;
+
+      // Save to SQLite
       db.run(`UPDATE images SET image_url = ?, status = ? WHERE item_id = ?`, [
-        imageUrl,
+        publicImageUrl,
         "completed",
         item_id,
       ]);
