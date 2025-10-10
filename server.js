@@ -343,6 +343,111 @@ app.post(
   }
 );
 
+// ---- endpoint: get funny verdict ----
+app.post("/get-funny-verdict", async (req, res) => {
+  const { verdict_item_id } = req.body;
+  console.log("✅ Received get-funny-verdict request:", verdict_item_id);
+
+  if (!verdict_item_id)
+    return res.status(400).json({ error: "Missing verdict_item_id" });
+
+  db.get(`SELECT verdict FROM images WHERE item_id = ?`, [verdict_item_id], (err, row) => {
+    if (err) {
+      console.error("DB query error:", err);
+      return res.status(500).json({ error: "Database error" });
+    }
+    if (!row) return res.status(404).json({ error: "Verdict not found" });
+    return res.json({ funny_verdict: row.verdict });
+  });
+});
+
+
+// ---- endpoint: generate funny verdict ----
+app.post("/generate-verdict", async (req, res) => {
+  console.log("✅ Received generate-verdict request:", req.body);
+
+  const { case_details, answer_1, answer_2, answer_3, answer_4 } = req.body;
+  if (!case_details || !answer_1 || !answer_2 || !answer_3 || !answer_4)
+    return res.status(400).json({ error: "Missing required fields" });
+
+  const item_id = uuidv4();
+
+  db.run(
+    `INSERT OR REPLACE INTO images (item_id, case_details, verdict, status) VALUES (?, ?, ?, ?)`,
+    [item_id, case_details, "", "processing"]
+  );
+
+  // Return immediately while processing verdict asynchronously
+  res.json({ verdict_item_id: item_id });
+
+  setImmediate(async () => {
+    try {
+      const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+      const prompt = `
+You are the sarcastic AI Judge of the "Frustration Court" — an imaginary courtroom where petty complaints and emotional meltdowns are judged with humor, irony, and emojis.
+
+You must create a short, funny, and slightly dramatic verdict (2–4 sentences) based on the following inputs:
+
+CASE DETAILS: "${case_details}"
+
+Question 1: Who’s standing before the Court today? (Victim/Hero/Angry Soul) → "${answer_1}"
+Question 2: Who or what do they want to sue? → "${answer_2}"
+Question 3: Anger level (1–10) → "${answer_3}"
+Question 4: Are they innocent or a little guilty too? → "${answer_4}"
+
+Rules:
+- Be sarcastic but kind.
+- Always end with a fitting emoji combo that matches the emotion.
+- Avoid real names, offensive content, or politics.
+- Write as if spoken by a dramatic, overworked judge with a sense of humor.
+- Example verdicts:
+  - "Verdict: You are found guilty of excessive drama. Sentence: One deep breath and a cookie. 🍪⚖️"
+  - "The Court finds you 80% innocent, 20% dramatic. Case closed with laughter. 😂🔨"
+  - "Justice served — with extra sarcasm. Please collect your emotional refund at the exit. 💸🤪"
+
+Output only the final funny verdict (1 paragraph).
+`;
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: "You are the sarcastic AI judge of Frustration Court." },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.9,
+          max_tokens: 200,
+        }),
+      });
+
+      const data = await response.json();
+      const funnyVerdict =
+        data.choices?.[0]?.message?.content?.trim() ||
+        "The Court is still laughing. Please retry later. 🤖⚖️";
+      console.log(`Generated verdict ${funnyVerdict}`);
+
+      db.run(
+        `UPDATE images SET verdict = ?, status = ? WHERE item_id = ?`,
+        [funnyVerdict, "completed", item_id],
+        (err) => {
+          if (err) console.error("DB update error:", err);
+          else console.log(`✅ Verdict stored for item_id ${item_id}`);
+        }
+      );
+    } catch (err) {
+      console.error("❌ Error generating verdict:", err);
+      db.run(`UPDATE images SET status = ? WHERE item_id = ?`, ["failed", item_id]);
+    }
+  });
+});
+
+
 // ---- endpoint: async OpenAI image generation with SQLite ----
 app.post("/generate-verdict-image", async (req, res) => {
   console.log("✅ Received image generation request:", req.body);
