@@ -41,14 +41,14 @@ const dbPath = path.join(__dirname, "verdict_images.db");
 const db = new sqlite3.Database(dbPath);
 db.serialize(() => {
   db.run(`
-	CREATE TABLE IF NOT EXISTS images (
-	  item_id TEXT PRIMARY KEY,
-	  case_details TEXT,
-	  verdict TEXT,
-	  image_url TEXT,
-	  status TEXT,
-	  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	)
+  CREATE TABLE IF NOT EXISTS images (
+    item_id TEXT PRIMARY KEY,
+    case_details TEXT,
+    verdict TEXT,
+    image_url TEXT,
+    status TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
   `);
 });
 
@@ -190,26 +190,26 @@ app.get("/success", async (req, res) => {
   const sessionId = req.query.session_id;
   const session = await stripe.checkout.sessions.retrieve(sessionId);
   res.send(`
-	<!DOCTYPE html>
-	<html>
-	  <head>
-		<title>Payment Success</title>
-		<style>
-		  body { font-family: Arial, sans-serif; background: #f9f9f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-		  .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
-		  h1 { font-size: 28px; color: #2d7a46; }
-		  p { font-size: 18px; color: #555; }
-		</style>
-	  </head>
-	  <body>
-		<div class="card">
-		  <h1>🎉 Payment Created!</h1>
-		  <p>Thank you for your purchase.</p>
-		  <p><strong>Session ID:</strong> ${session.id}</p>
-		  <p>You will be informed via Frustration Court.</p>
-		</div>
-	  </body>
-	</html>
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <title>Payment Success</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f9f9f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+      .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+      h1 { font-size: 28px; color: #2d7a46; }
+      p { font-size: 18px; color: #555; }
+    </style>
+    </head>
+    <body>
+    <div class="card">
+      <h1>🎉 Payment Created!</h1>
+      <p>Thank you for your purchase.</p>
+      <p><strong>Session ID:</strong> ${session.id}</p>
+      <p>You will be informed via Frustration Court.</p>
+    </div>
+    </body>
+  </html>
   `);
 });
 
@@ -217,24 +217,24 @@ app.get("/success", async (req, res) => {
 app.get("/cancel", (req, res) => {
   console.log("User canceled payment");
   res.send(`
-	<!DOCTYPE html>
-	<html>
-	  <head>
-		<title>Payment Canceled</title>
-		<style>
-		  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff5f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-		  .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
-		  h1 { font-size: 28px; color: #d93025; }
-		  p { font-size: 18px; color: #444; }
-		</style>
-	  </head>
-	  <body>
-		<div class="card">
-		  <h1>❌ Payment Canceled</h1>
-		  <p>Your transaction has been canceled. No charges were made.</p>
-		</div>
-	  </body>
-	</html>
+  <!DOCTYPE html>
+  <html>
+    <head>
+    <title>Payment Canceled</title>
+    <style>
+      body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #fff5f5; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+      .card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+      h1 { font-size: 28px; color: #d93025; }
+      p { font-size: 18px; color: #444; }
+    </style>
+    </head>
+    <body>
+    <div class="card">
+      <h1>❌ Payment Canceled</h1>
+      <p>Your transaction has been canceled. No charges were made.</p>
+    </div>
+    </body>
+  </html>
   `);
 });
 
@@ -451,9 +451,9 @@ Output only the final funny verdict (1 paragraph).
 // ---- endpoint: async OpenAI image generation with SQLite ----
 app.post("/generate-verdict-image", async (req, res) => {
   console.log("✅ Received image generation request:", req.body);
-  const { case_details, verdict } = req.body;
+  const { case_details, verdict, answer_3 } = req.body;
 
-  if (!case_details || !verdict)
+  if (!case_details || !verdict )
     return res.status(400).json({ error: "Missing case_details, verdict" });
 
   const item_id = uuidv4();
@@ -463,59 +463,27 @@ app.post("/generate-verdict-image", async (req, res) => {
   );
 
   res.json({ status: "processing", item_id });
+  
+  const score = Number(answer_3);
 
+  let mood = "";
+
+  if (score >= 1 && score <= 3) {
+    mood = "angry";
+  } else if (score >= 4 && score <= 6) {
+    mood = "sad";
+  } else if (score >= 7 && score <= 8) {
+    mood = "ironic";
+  } else if (score >= 9 && score <= 10) {
+    mood = "absurd";
+  } else {
+    mood = "unknown"; // fallback for out-of-range values
+  }
+  const verdict_title = verdict;
   setImmediate(async () => {
     try {
       const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-      const prompt = `
-		You are an expert cinematic AI image creator generating symbolic, emotional verdicts for the project "Frustration Court" — a fictional AI-powered emotional courtroom.
-
-		Create a visually striking, surreal courtroom scene that captures the emotional essence of the case and verdict provided below.
-
-		CASE DETAILS:
-		"${case_details}"
-
-		VERDICT:
-		"${verdict}"
-
-		Your task:
-		- Generate an artistic and symbolic courtroom illustration that visually represents the emotional weight, irony, and tone of the verdict.
-		- The image should feel like a dystopian emotional court where justice meets chaos and sarcasm.
-
-		Visual Style Guidelines:
-		- **Mood:** dark, dramatic, sarcastic, cinematic, with emotional depth.
-		- **Setting:** surreal courtroom or psychological space, not realistic — mix of human and symbolic elements.
-		- **Key symbols:** broken gavel, floating verdict papers, red wax seal labeled “Frustration Court”, cracked scales of justice, smoke, or glowing emotional energy.
-		- **Textures:** aged parchment, metal, shadowed marble, subtle grain and light leaks.
-		- **Lighting:** low-key cinematic lighting with strong contrast (spotlight on the verdict area, dark corners, subtle red reflections).
-		- **Colors:** black, deep red, charcoal gray, parchment beige, subtle highlights in gold or crimson.
-		- **Composition:** central focus on the “verdict area” (symbolic paper or holographic display), surrounded by symbolic chaos or emotional debris.
-		- **Typography area:** include space where verdict text could exist, but do NOT include readable words — use abstract lines, pseudo-legal scribbles, or stylized placeholder marks.
-		- **Additional elements:** add emotional symbolism — shadows forming human faces, smoke shaped like frustration, faint reflections of the user’s emotional theme.
-		- **Art Direction Keywords:** dystopian, brutalist, surreal, emotional, dark humor, poetic justice.
-
-		Atmosphere Keywords:
-		- dramatic tension
-		- emotional absurdity
-		- digital spirituality
-		- ironic authority
-		- metaphysical courtroom
-
-		Do NOT include:
-		- realistic text or actual human likeness
-		- violence, blood, or horror
-		- political, religious, or real-world logos
-
-		Output Format:
-		- Aspect Ratio: 4:5 (vertical poster, optimized for mobile and social media)
-		- Style: hyperrealistic cinematic concept art
-		- Vibe: darkly poetic, intelligent, and satirical — the perfect visual match for an AI judge’s sarcastic verdict.
-
-		Example tone to inspire:
-		“Justice served. No mercy. No refunds.”
-
-		Return only the final artistic scene — do not describe or explain it.
-		`;
+      const prompt = `Create a vertical poster for the fictional “Frustration Court”. Goal: a shareable verdict image that mixes dark humor with symbolic justice.\n\nCONTENT & COMPOSITION\n- Show a surreal, stylized courtroom led by an AI Judge (abstract/robotic, no real person likeness).\n- Central “verdict panel” (parchment or hologram) framed by subtle chaos: broken gavel motion blur, floating papers, cracked scales.\n- Add a small red wax seal or stamp that reads exactly: “Frustration Court”.\n- Include one or two subtle SYMBOLS that hint at the case: ${case_details} (e.g., if it’s about deadlines, show a distorted clock; if it’s about an ex, a cracked heart-as-evidence).\n- Leave clean space inside the verdict panel for overlay text later. Do NOT place long readable text inside the image.\n- If a SHORT headline is provided (${verdict_title} ≤ 6 words), you may render ONLY that as a bold stamped title on the panel. Otherwise use decorative lines or fake scribbles as placeholders.\n\nMOOD & STYLE\n- Tone: ${mood} (angry / sad / ironic / absurd). Reflect it in color and lighting.\n- Style: cinematic concept art with a graphic, poster-like finish; slightly stylized (not photo-real).\n- Palette guidance:\n - angry → deep blacks, crimson reds, steel gray;\n - sad → charcoal grays, muted blues, parchment highlights;\n - ironic/absurd → darker base with playful crimson/gold accents.\n- Lighting: spotlight on the verdict panel, soft red rim light, subtle volumetric shadows.\n- Texture: aged paper grain, faint light leaks, minimal vignette.\n\nRULES & SAFETY\n- No gore, no violence, no political or religious symbols, no real logos (besides “Frustration Court”).\n- No long readable body text; only a small headline if ${verdict_title} is present.\n- Keep it clean, sharp, and social-media-ready.\n\nOUTPUT\n- Vertical composition optimized for mobile sharing.\n- Deliver a single, polished poster of the described scene. verdict: ${verdict}`;
 
       const response = await fetch(
         "https://api.openai.com/v1/images/generations",
@@ -528,7 +496,7 @@ app.post("/generate-verdict-image", async (req, res) => {
           body: JSON.stringify({
             model: "dall-e-3",
             prompt,
-            size: "1024x1024",
+            size: "1024x1792",
           }),
         }
       );
